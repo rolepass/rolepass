@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/runebaas/rolepass/role.schema.json",
+  "title": "Pipeline Role",
+  "description": "Defines an IAM role for a CI/CD pipeline, including which accounts it exists in, what it is allowed to assume, and what permissions it has.",
+  "type": "object",
+  "required": ["name", "accounts", "trust", "permissions"],
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Name of the IAM role. Must be unique within each account it is deployed to.",
+      "pattern": "^[a-zA-Z0-9+=,.@_-]{1,64}$"
+    },
+    "description": {
+      "type": "string",
+      "description": "Human-readable description of what this role is for."
+    },
+    "accounts": {
+      "type": "array",
+      "description": "List of account names (as defined in accounts.yaml) that this role should be created in.",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "description": "Account name."
+      }
+    },
+    "trust": {
+      "type": "object",
+      "description": "Defines which CI/CD identity is allowed to assume this role.",
+      "required": ["repo"],
+      "additionalProperties": false,
+      "properties": {
+        "repo": {
+          "type": "string",
+          "description": "The fully qualified repository path as it appears in the OIDC subject claim (e.g. my-group/my-repo).",
+          "examples": ["my-org/my-repo", "my-group/subgroup/my-repo"]
+        },
+        "refs": {
+          "type": "array",
+          "description": "Git refs that are permitted to assume this role. Supports wildcards. Defaults to the repository's default branch only if omitted.",
+          "items": {
+            "type": "string",
+            "examples": ["refs/heads/main", "refs/heads/release/*", "refs/tags/*"]
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "permissions": {
+      "type": "array",
+      "description": "List of IAM policy statements granted to this role.",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/PolicyStatement"
+      }
+    },
+    "max_session_duration": {
+      "type": "integer",
+      "description": "Maximum session duration in seconds. Defaults to 3600 (1 hour).",
+      "minimum": 3600,
+      "maximum": 43200,
+      "default": 3600
+    }
+  },
+  "$defs": {
+    "PolicyStatement": {
+      "type": "object",
+      "required": ["effect", "actions", "resources"],
+      "additionalProperties": false,
+      "properties": {
+        "effect": {
+          "type": "string",
+          "description": "Whether this statement allows or denies the specified actions.",
+          "enum": ["Allow", "Deny"]
+        },
+        "actions": {
+          "type": "array",
+          "description": "List of IAM actions. Supports wildcards (e.g. s3:*).",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^(\\*|[a-zA-Z0-9]+:(\\*|[a-zA-Z0-9*]+))$",
+            "examples": ["s3:*", "lambda:InvokeFunction", "iam:PassRole", "*"]
+          }
+        },
+        "resources": {
+          "type": "array",
+          "description": "List of ARNs this statement applies to. Supports wildcards.",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "examples": [
+              "*",
+              "arn:aws:s3:::my-bucket",
+              "arn:aws:s3:::my-bucket/*",
+              "arn:aws:lambda:eu-west-1:*:function:my-function"
+            ]
+          }
+        },
+        "conditions": {
+          "type": "object",
+          "description": "Optional IAM condition block. Keys are condition operators, values are maps of condition keys to values.",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": {
+              "oneOf": [
+                { "type": "string" },
+                {
+                  "type": "array",
+                  "items": { "type": "string" }
+                }
+              ]
+            }
+          },
+          "examples": [
+            {
+              "StringEquals": {
+                "aws:RequestedRegion": ["eu-west-1", "eu-central-1"]
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

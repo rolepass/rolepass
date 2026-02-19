@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/your-org/rolepass/schemas/accounts.schema.json",
+  "title": "Accounts",
+  "description": "Registry of AWS accounts managed by rolepass.",
+  "type": "object",
+  "required": ["accounts"],
+  "additionalProperties": false,
+  "properties": {
+    "accounts": {
+      "type": "array",
+      "description": "List of AWS accounts rolepass will manage roles in.",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/Account"
+      }
+    }
+  },
+  "$defs": {
+    "Account": {
+      "type": "object",
+      "required": ["name", "id"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Unique short name for this account, used to reference it in role definitions.",
+          "pattern": "^[a-z0-9-]{1,32}$",
+          "examples": ["prod", "staging", "dev", "data-prod"]
+        },
+        "id": {
+          "type": "string",
+          "description": "AWS account ID.",
+          "pattern": "^[0-9]{12}$",
+          "examples": ["111111111111"]
+        },
+        "partition": {
+          "type": "string",
+          "description": "AWS partition this account belongs to. Defaults to 'aws' (global).",
+          "enum": ["aws", "aws-cn", "aws-us-gov"],
+          "default": "aws"
+        },
+        "deployer_role_name": {
+          "type": "string",
+          "description": "Name of the bootstrapped IAM role rolepass assumes in this account to manage roles. Defaults to 'rolepass-deployer' if omitted.",
+          "pattern": "^[a-zA-Z0-9+=,.@_-]{1,64}$",
+          "default": "rolepass-deployer"
+        }
+      }
+    }
+  }
+}
