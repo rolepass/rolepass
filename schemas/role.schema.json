@@ -29,9 +29,18 @@
     "trust": {
       "type": "object",
       "description": "Defines which CI/CD identity is allowed to assume this role.",
-      "required": ["repo"],
+      "required": ["provider", "repo"],
       "additionalProperties": false,
       "properties": {
+        "provider": {
+          "type": "string",
+          "enum": ["github", "gitlab"],
+          "description": "CI/CD provider for OIDC federation."
+        },
+        "issuer": {
+          "type": "string",
+          "description": "OIDC issuer hostname (without https://). Defaults: token.actions.githubusercontent.com (github), gitlab.com (gitlab). Override for self-hosted instances."
+        },
         "repo": {
           "type": "string",
           "description": "The fully qualified repository path as it appears in the OIDC subject claim (e.g. my-group/my-repo).",
