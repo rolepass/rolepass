@@ -4,9 +4,8 @@ use anyhow::{Result, bail};
 use owo_colors::{OwoColorize, Stream};
 use serde_json::Value;
 
-use crate::aws::iam::{
-    FetchedRoleState, fetch_role_state, iam_client_from_credentials, list_managed_role_names,
-};
+use crate::aws::iam::{FetchedRoleState, fetch_role_state, iam_client_from_credentials};
+use crate::aws::tagging::{list_managed_role_names, tagging_client_from_credentials};
 use crate::aws::policy::{generate_permission_policy, generate_trust_policy};
 use crate::aws::sts::assume_all_deployer_roles;
 use crate::config::accounts::Account;
@@ -131,7 +130,7 @@ fn normalize_json(value: &Value) -> Value {
     }
 }
 
-pub async fn run(paths: &ConfigPaths) -> Result<()> {
+pub async fn run(paths: &ConfigPaths, debug: bool) -> Result<()> {
     let config = load_config(paths)?;
 
     let account_map: HashMap<&str, &Account> = config
@@ -183,6 +182,15 @@ pub async fn run(paths: &ConfigPaths) -> Result<()> {
         })
         .collect();
 
+    // Build tagging client per account
+    let tagging_clients: HashMap<&str, aws_sdk_resourcegroupstagging::Client> = successes
+        .iter()
+        .map(|(id, assumed)| {
+            let client = tagging_client_from_credentials(&assumed.credentials);
+            (id.as_str(), client)
+        })
+        .collect();
+
     // Compute plan entries for config-defined roles
     let mut entries = Vec::new();
     for role in &config.roles {
@@ -206,8 +214,9 @@ pub async fn run(paths: &ConfigPaths) -> Result<()> {
 
     // Discover orphaned roles in each account
     for account in &unique_accounts {
+        let tagging_client = &tagging_clients[account.id.as_str()];
         let iam_client = &iam_clients[account.id.as_str()];
-        let managed_names = list_managed_role_names(iam_client).await?;
+        let managed_names = list_managed_role_names(tagging_client, iam_client, debug).await?;
 
         for role_name in managed_names {
             if !desired.contains(&(role_name.as_str(), account.id.as_str())) {

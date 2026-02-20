@@ -216,48 +216,6 @@ pub async fn delete_role(client: &IamClient, role_name: &str) -> Result<()> {
     Ok(())
 }
 
-pub async fn list_managed_role_names(client: &IamClient) -> Result<Vec<String>> {
-    let mut managed = Vec::new();
-    let mut marker: Option<String> = None;
-
-    loop {
-        let mut req = client.list_roles();
-        if let Some(m) = &marker {
-            req = req.marker(m);
-        }
-
-        let output = req.send().await.context("listing IAM roles")?;
-
-        for role in output.roles() {
-            let role_name = role.role_name();
-
-            let tags_output = client
-                .list_role_tags()
-                .role_name(role_name)
-                .send()
-                .await
-                .with_context(|| format!("listing tags for role '{role_name}'"))?;
-
-            let is_managed = tags_output
-                .tags()
-                .iter()
-                .any(|t| t.key() == ROLEPASS_TAG_KEY && t.value() == ROLEPASS_TAG_VALUE);
-
-            if is_managed {
-                managed.push(role_name.to_string());
-            }
-        }
-
-        if output.is_truncated() {
-            marker = output.marker().map(String::from);
-        } else {
-            break;
-        }
-    }
-
-    Ok(managed)
-}
-
 async fn fetch_inline_policy(iam_client: &IamClient, role_name: &str) -> Result<Option<Value>> {
     let result = iam_client
         .get_role_policy()

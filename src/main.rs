@@ -25,6 +25,10 @@ struct Cli {
     #[arg(long, env = "ROLEPASS_ROLES", value_delimiter = ',')]
     roles: Option<Vec<PathBuf>>,
 
+    /// Enable debug output
+    #[arg(long, global = true)]
+    debug: bool,
+
     #[command(subcommand)]
     command: Command,
 }
@@ -62,8 +66,8 @@ async fn main() {
             match cli.command {
                 Command::Validate => commands::validate::run(&paths),
                 Command::Preview => commands::preview::run(&paths),
-                Command::Plan => commands::plan::run(&paths).await,
-                Command::Apply { yes } => commands::apply::run(&paths, yes).await,
+                Command::Plan => commands::plan::run(&paths, cli.debug).await,
+                Command::Apply { yes } => commands::apply::run(&paths, yes, cli.debug).await,
                 Command::Init => unreachable!(),
             }
         }

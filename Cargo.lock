@@ -214,6 +214,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "aws-sdk-resourcegroupstagging"
+version = "1.95.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ce1175429cd9d58f15d6cfb63ef31a77ece4137c316417a3f9bb8a83ce8b94a0"
+dependencies = [
+ "aws-credential-types",
+ "aws-runtime",
+ "aws-smithy-async",
+ "aws-smithy-http",
+ "aws-smithy-json",
+ "aws-smithy-observability",
+ "aws-smithy-runtime",
+ "aws-smithy-runtime-api",
+ "aws-smithy-types",
+ "aws-types",
+ "bytes",
+ "fastrand",
+ "http 0.2.12",
+ "http 1.4.0",
+ "regex-lite",
+ "tracing",
+]
+
+[[package]]
 name = "aws-sdk-sso"
 version = "1.95.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1788,6 +1812,7 @@ dependencies = [
  "anyhow",
  "aws-config",
  "aws-sdk-iam",
+ "aws-sdk-resourcegroupstagging",
  "aws-sdk-sts",
  "clap",
  "jsonschema",
