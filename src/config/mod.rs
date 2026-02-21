@@ -62,18 +62,25 @@ fn discover_role_files(config_dir: &Path) -> Result<Vec<PathBuf>> {
         return Ok(Vec::new());
     }
 
-    let mut paths: Vec<PathBuf> = std::fs::read_dir(&roles_dir)
-        .with_context(|| format!("reading directory {}", roles_dir.display()))?
-        .filter_map(|entry| entry.ok())
-        .map(|entry| entry.path())
-        .filter(|path| {
-            path.extension()
-                .is_some_and(|ext| ext == "yaml" || ext == "yml")
-        })
-        .collect();
-
+    let mut paths = Vec::new();
+    collect_role_files(&roles_dir, &mut paths)?;
     paths.sort();
     Ok(paths)
+}
+
+fn collect_role_files(dir: &Path, paths: &mut Vec<PathBuf>) -> Result<()> {
+    for entry in std::fs::read_dir(dir)
+        .with_context(|| format!("reading directory {}", dir.display()))?
+    {
+        let entry = entry.with_context(|| format!("reading entry in {}", dir.display()))?;
+        let path = entry.path();
+        if path.is_dir() {
+            collect_role_files(&path, paths)?;
+        } else if path.extension().is_some_and(|ext| ext == "yaml" || ext == "yml") {
+            paths.push(path);
+        }
+    }
+    Ok(())
 }
 
 fn cross_validate(config: &Config) -> Result<()> {
@@ -209,6 +216,45 @@ permissions:
         .unwrap_err();
 
         assert!(err.to_string().contains("unknown account 'nonexistent'"));
+    }
+
+    #[test]
+    fn discover_role_files_recursively() {
+        let dir = tempfile::tempdir().unwrap();
+        setup_config_dir(dir.path());
+
+        // Add a nested role file
+        fs::create_dir_all(dir.path().join("roles/sub")).unwrap();
+        fs::write(
+            dir.path().join("roles/sub/worker.yaml"),
+            r#"
+name: worker-role
+accounts:
+  - staging
+trust:
+  provider: github
+  repo: my-org/my-repo
+permissions:
+  - effect: Allow
+    actions:
+      - sqs:ReceiveMessage
+    resources:
+      - "*"
+"#,
+        )
+        .unwrap();
+
+        let config = load_config(&ConfigPaths {
+            config_dir: dir.path().to_path_buf(),
+            accounts_path: None,
+            role_paths: None,
+        })
+        .unwrap();
+
+        assert_eq!(config.roles.len(), 2);
+        let names: Vec<&str> = config.roles.iter().map(|r| r.name.as_str()).collect();
+        assert!(names.contains(&"deploy-role"));
+        assert!(names.contains(&"worker-role"));
     }
 
     #[test]
