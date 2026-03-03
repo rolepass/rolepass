@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use aws_sdk_iam::Client as IamClient;
+use aws_sdk_iam::operation::delete_role_policy::DeleteRolePolicyError;
 use aws_sdk_iam::operation::get_role::GetRoleError;
 use aws_sdk_iam::operation::get_role_policy::GetRolePolicyError;
 use aws_sdk_iam::types::Tag;
@@ -7,6 +8,7 @@ use aws_sdk_sts::types::Credentials;
 use serde_json::Value;
 
 use super::policy::ROLEPASS_POLICY_NAME;
+use super::{CREDENTIAL_PROVIDER_NAME, IAM_REGION};
 
 pub const ROLEPASS_TAG_KEY: &str = "managed-by";
 pub const ROLEPASS_TAG_VALUE: &str = "rolepass";
@@ -25,11 +27,11 @@ pub fn iam_client_from_credentials(credentials: &Credentials) -> IamClient {
         credentials.secret_access_key(),
         Some(credentials.session_token().to_string()),
         None,
-        "rolepass-sts",
+        CREDENTIAL_PROVIDER_NAME,
     );
     let config = aws_sdk_iam::Config::builder()
         .credentials_provider(creds)
-        .region(aws_sdk_iam::config::Region::new("us-east-1"))
+        .region(aws_sdk_iam::config::Region::new(IAM_REGION))
         .behavior_version_latest()
         .build();
     IamClient::from_conf(config)
@@ -66,7 +68,9 @@ pub async fn fetch_role_state(
     let trust_policy: Value = serde_json::from_str(&trust_policy_decoded)
         .with_context(|| format!("parsing trust policy JSON for '{role_name}'"))?;
 
-    let max_session_duration = role.max_session_duration().unwrap_or(3600);
+    let max_session_duration = role
+        .max_session_duration()
+        .unwrap_or(crate::config::role::DEFAULT_MAX_SESSION_DURATION as i32);
     let description = role.description().map(String::from);
 
     let inline_policy = fetch_inline_policy(iam_client, role_name).await?;
@@ -194,16 +198,26 @@ pub async fn delete_role_policy(
     role_name: &str,
     policy_name: &str,
 ) -> Result<()> {
-    client
+    match client
         .delete_role_policy()
         .role_name(role_name)
         .policy_name(policy_name)
         .send()
         .await
-        .with_context(|| {
-            format!("deleting inline policy '{policy_name}' from role '{role_name}'")
-        })?;
-    Ok(())
+    {
+        Ok(_) => Ok(()),
+        Err(sdk_err) => {
+            if matches!(
+                sdk_err.as_service_error(),
+                Some(DeleteRolePolicyError::NoSuchEntityException(_))
+            ) {
+                return Ok(());
+            }
+            Err(sdk_err).context(format!(
+                "deleting inline policy '{policy_name}' from role '{role_name}'"
+            ))
+        }
+    }
 }
 
 pub async fn delete_role(client: &IamClient, role_name: &str) -> Result<()> {

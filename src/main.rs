@@ -11,7 +11,11 @@ use owo_colors::{OwoColorize, Stream, Style};
 use config::ConfigPaths;
 
 #[derive(Parser)]
-#[command(name = "rolepass", about = "Manage AWS IAM roles for CI/CD pipelines")]
+#[command(
+    name = "rolepass",
+    version,
+    about = "Manage AWS IAM roles for CI/CD pipelines"
+)]
 struct Cli {
     /// Config directory (default: current directory)
     #[arg(long, default_value = ".", env = "ROLEPASS_CONFIG_DIR")]
@@ -41,9 +45,9 @@ enum Command {
     Validate,
     /// Preview the generated IAM role JSON without making AWS calls
     Preview,
-    /// Show what changes would be made
+    /// Show what changes would be made (requires AWS credentials)
     Plan,
-    /// Deploy roles to AWS accounts
+    /// Deploy roles to AWS accounts (requires AWS credentials)
     Apply {
         /// Skip confirmation prompt
         #[arg(long, short = 'y')]

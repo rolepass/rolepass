@@ -9,13 +9,13 @@ static ROLE_SCHEMA: &str = include_str!("../../schemas/role.schema.json");
 
 pub fn validate_accounts(yaml_str: &str, file_path: &Path) -> Result<()> {
     let schema: Value = serde_json::from_str(ACCOUNTS_SCHEMA)?;
-    let value: Value = serde_yaml::from_str(yaml_str)?;
+    let value: Value = serde_yml::from_str(yaml_str)?;
     validate_value(&schema, &value, file_path)
 }
 
 pub fn validate_role(yaml_str: &str, file_path: &Path) -> Result<()> {
     let schema: Value = serde_json::from_str(ROLE_SCHEMA)?;
-    let value: Value = serde_yaml::from_str(yaml_str)?;
+    let value: Value = serde_yml::from_str(yaml_str)?;
     validate_value(&schema, &value, file_path)
 }
 

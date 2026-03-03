@@ -1,123 +1,20 @@
-use std::collections::{HashMap, HashSet};
-
 use std::io::IsTerminal;
 
 use anyhow::{Result, bail};
 use owo_colors::{OwoColorize, Stream, Style};
 
 use crate::aws::iam::{
-    create_role, delete_role, delete_role_policy, iam_client_from_credentials, put_role_policy,
-    tag_role, update_role, update_trust_policy,
+    create_role, delete_role, delete_role_policy, put_role_policy, tag_role, update_role,
+    update_trust_policy,
 };
-use crate::aws::tagging::{list_managed_role_names, tagging_client_from_credentials};
 use crate::aws::policy::{ROLEPASS_POLICY_NAME, generate_permission_policy, generate_trust_policy};
-use crate::aws::sts::assume_all_deployer_roles;
-use crate::commands::plan::{
-    ChangeDetail, PlanEntry, PlannedAction, compute_plan_entry, print_plan,
-};
+use crate::commands::plan::{ChangeDetail, PlannedAction, build_plan, print_plan};
+use crate::config::ConfigPaths;
 use crate::config::accounts::Account;
 use crate::config::role::RoleFile;
-use crate::config::{ConfigPaths, load_config};
 
 pub async fn run(paths: &ConfigPaths, auto_approve: bool, debug: bool) -> Result<()> {
-    let config = load_config(paths)?;
-
-    let account_map: HashMap<&str, &Account> = config
-        .accounts
-        .accounts
-        .iter()
-        .map(|a| (a.name.as_str(), a))
-        .collect();
-
-    // Use ALL accounts from accounts file (not just role-referenced ones)
-    // so we can detect orphaned roles in accounts where roles were removed from config
-    let unique_accounts: Vec<&Account> = config.accounts.accounts.iter().collect();
-
-    println!(
-        "{}",
-        format!(
-            "Assuming deployer roles in {} account(s)...",
-            unique_accounts.len()
-        )
-        .if_supports_color(Stream::Stdout, |t| t.bold())
-    );
-
-    let aws_config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
-    let sts_client = aws_sdk_sts::Client::new(&aws_config);
-
-    let (successes, failures) = assume_all_deployer_roles(&sts_client, &unique_accounts).await;
-
-    if !failures.is_empty() {
-        eprintln!(
-            "\n{}",
-            format!("Failed to assume roles in {} account(s):", failures.len())
-                .if_supports_color(Stream::Stderr, |t| t.red())
-        );
-        for (name, err) in &failures {
-            eprintln!("  {}: {:#}", name, err);
-        }
-        bail!(
-            "Failed to assume deployer roles in {} account(s). Cannot proceed.",
-            failures.len()
-        );
-    }
-
-    // Build IAM client per account
-    let iam_clients: HashMap<&str, aws_sdk_iam::Client> = successes
-        .iter()
-        .map(|(id, assumed)| {
-            let client = iam_client_from_credentials(&assumed.credentials);
-            (id.as_str(), client)
-        })
-        .collect();
-
-    // Build tagging client per account
-    let tagging_clients: HashMap<&str, aws_sdk_resourcegroupstagging::Client> = successes
-        .iter()
-        .map(|(id, assumed)| {
-            let client = tagging_client_from_credentials(&assumed.credentials);
-            (id.as_str(), client)
-        })
-        .collect();
-
-    // Compute plan entries for config-defined roles
-    let mut entries = Vec::new();
-    for role in &config.roles {
-        for account_name in &role.accounts {
-            let account = account_map[account_name.as_str()];
-            let iam_client = &iam_clients[account.id.as_str()];
-
-            let entry = compute_plan_entry(role, account, iam_client).await?;
-            entries.push(entry);
-        }
-    }
-
-    // Build desired set of (role_name, account_id) from config
-    let mut desired: HashSet<(&str, &str)> = HashSet::new();
-    for role in &config.roles {
-        for acct_name in &role.accounts {
-            let account = account_map[acct_name.as_str()];
-            desired.insert((role.name.as_str(), account.id.as_str()));
-        }
-    }
-
-    // Discover orphaned roles in each account
-    for account in &unique_accounts {
-        let tagging_client = &tagging_clients[account.id.as_str()];
-        let iam_client = &iam_clients[account.id.as_str()];
-        let managed_names = list_managed_role_names(tagging_client, iam_client, debug).await?;
-
-        for role_name in managed_names {
-            if !desired.contains(&(role_name.as_str(), account.id.as_str())) {
-                entries.push(PlanEntry {
-                    role_name,
-                    account_name: account.name.clone(),
-                    account_id: account.id.clone(),
-                    action: PlannedAction::Delete,
-                });
-            }
-        }
-    }
+    let (config, entries, iam_clients) = build_plan(paths, debug).await?;
 
     // Print plan
     print_plan(&entries);
@@ -127,9 +24,9 @@ pub async fn run(paths: &ConfigPaths, auto_approve: bool, debug: bool) -> Result
         .iter()
         .all(|e| matches!(e.action, PlannedAction::NoChange))
     {
-        println!(
+        eprintln!(
             "\n{}",
-            "No changes to apply.".if_supports_color(Stream::Stdout, |t| t.dimmed())
+            "No changes to apply.".if_supports_color(Stream::Stderr, |t| t.dimmed())
         );
         return Ok(());
     }
@@ -143,29 +40,34 @@ pub async fn run(paths: &ConfigPaths, auto_approve: bool, debug: bool) -> Result
         }
 
         use std::io::Write;
-        print!("\nDo you want to apply these changes? (yes/no): ");
-        std::io::stdout().flush()?;
+        eprint!("\nDo you want to apply these changes? (yes/no): ");
+        std::io::stderr().flush()?;
 
         let mut input = String::new();
         std::io::stdin().read_line(&mut input)?;
 
         if !input.trim().eq_ignore_ascii_case("yes") {
-            println!("Apply cancelled.");
+            eprintln!("Apply cancelled.");
             return Ok(());
         }
     }
 
     // Apply changes
-    println!(
+    eprintln!(
         "\n{}\n",
-        "Applying changes...".if_supports_color(Stream::Stdout, |t| t.bold())
+        "Applying changes...".if_supports_color(Stream::Stderr, |t| t.bold())
     );
 
+    let account_map = config.accounts.account_map();
     let mut succeeded = 0u32;
     let mut failed = 0u32;
 
     for entry in &entries {
-        let account = account_map[entry.account_name.as_str()];
+        let account = account_map
+            .get(entry.account_name.as_str())
+            .ok_or_else(|| {
+                anyhow::anyhow!("unknown account '{}' during apply", entry.account_name)
+            })?;
         let iam_client = &iam_clients[account.id.as_str()];
 
         match &entry.action {
@@ -288,17 +190,17 @@ pub async fn run(paths: &ConfigPaths, auto_approve: bool, debug: bool) -> Result
             "{}",
             failed
                 .to_string()
-                .if_supports_color(Stream::Stdout, |t| t.red())
+                .if_supports_color(Stream::Stderr, |t| t.red())
         )
     } else {
         failed.to_string()
     };
-    println!(
+    eprintln!(
         "\n{} {} succeeded, {} failed",
-        "Apply complete:".if_supports_color(Stream::Stdout, |t| t.bold()),
+        "Apply complete:".if_supports_color(Stream::Stderr, |t| t.bold()),
         succeeded
             .to_string()
-            .if_supports_color(Stream::Stdout, |t| t.green()),
+            .if_supports_color(Stream::Stderr, |t| t.green()),
         failed_str,
     );
 
@@ -366,17 +268,8 @@ async fn apply_update(
 }
 
 async fn apply_delete(role_name: &str, iam_client: &aws_sdk_iam::Client) -> Result<()> {
-    // Remove inline policy first (ignore NoSuchEntity — policy may not exist)
-    match delete_role_policy(iam_client, role_name, ROLEPASS_POLICY_NAME).await {
-        Ok(()) => {}
-        Err(e) => {
-            let err_str = format!("{e:#}");
-            if !err_str.contains("NoSuchEntity") {
-                return Err(e);
-            }
-        }
-    }
-
+    // Remove inline policy first (NoSuchEntity is handled internally by delete_role_policy)
+    delete_role_policy(iam_client, role_name, ROLEPASS_POLICY_NAME).await?;
     delete_role(iam_client, role_name).await?;
     Ok(())
 }

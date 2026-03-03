@@ -5,6 +5,7 @@ use aws_sdk_resourcegroupstagging::types::TagFilter;
 use aws_sdk_sts::types::Credentials;
 
 use super::iam::{ROLEPASS_TAG_KEY, ROLEPASS_TAG_VALUE};
+use super::{CREDENTIAL_PROVIDER_NAME, IAM_REGION};
 
 /// Build a Resource Groups Tagging API client from STS assumed-role credentials.
 ///
@@ -15,12 +16,12 @@ pub fn tagging_client_from_credentials(credentials: &Credentials) -> TaggingClie
         credentials.secret_access_key(),
         Some(credentials.session_token().to_string()),
         None,
-        "rolepass-sts",
+        CREDENTIAL_PROVIDER_NAME,
     );
     let config = aws_sdk_resourcegroupstagging::Config::builder()
         .credentials_provider(creds)
         .region(aws_sdk_resourcegroupstagging::config::Region::new(
-            "us-east-1",
+            IAM_REGION,
         ))
         .behavior_version_latest()
         .build();
@@ -59,8 +60,7 @@ pub async fn list_managed_role_names(
         .send();
 
     while let Some(page) = paginator.next().await {
-        let output =
-            page.context("fetching tagged IAM roles via Resource Groups Tagging API")?;
+        let output = page.context("fetching tagged IAM roles via Resource Groups Tagging API")?;
         page_num += 1;
         let mappings = output.resource_tag_mapping_list();
         if debug {
@@ -103,7 +103,9 @@ pub async fn list_managed_role_names(
     // slower but reliable list_roles + list_role_tags approach as a safety net.
     if role_names.is_empty() {
         if debug {
-            eprintln!("[debug] Tagging API returned 0 results, falling back to IAM list_roles + list_role_tags");
+            eprintln!(
+                "[debug] Tagging API returned 0 results, falling back to IAM list_roles + list_role_tags"
+            );
         }
         return list_managed_role_names_iam_fallback(iam_client, debug).await;
     }
@@ -127,7 +129,10 @@ async fn list_managed_role_names_iam_fallback(
         if let Some(m) = &marker {
             req = req.marker(m);
         }
-        let output = req.send().await.context("listing IAM roles for fallback orphan detection")?;
+        let output = req
+            .send()
+            .await
+            .context("listing IAM roles for fallback orphan detection")?;
 
         for role in output.roles() {
             let role_name = role.role_name();
@@ -138,9 +143,10 @@ async fn list_managed_role_names_iam_fallback(
                 .await
                 .with_context(|| format!("listing tags for role '{role_name}'"))?;
 
-            let is_managed = tags_output.tags().iter().any(|t| {
-                t.key() == ROLEPASS_TAG_KEY && t.value() == ROLEPASS_TAG_VALUE
-            });
+            let is_managed = tags_output
+                .tags()
+                .iter()
+                .any(|t| t.key() == ROLEPASS_TAG_KEY && t.value() == ROLEPASS_TAG_VALUE);
 
             if is_managed {
                 if debug {
@@ -219,10 +225,7 @@ mod tests {
 
     #[test]
     fn extract_returns_none_for_non_role_arn() {
-        assert_eq!(
-            extract_role_name_from_arn("arn:aws:s3:::my-bucket"),
-            None
-        );
+        assert_eq!(extract_role_name_from_arn("arn:aws:s3:::my-bucket"), None);
     }
 
     #[test]

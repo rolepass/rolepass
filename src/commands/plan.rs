@@ -5,12 +5,12 @@ use owo_colors::{OwoColorize, Stream};
 use serde_json::Value;
 
 use crate::aws::iam::{FetchedRoleState, fetch_role_state, iam_client_from_credentials};
-use crate::aws::tagging::{list_managed_role_names, tagging_client_from_credentials};
 use crate::aws::policy::{generate_permission_policy, generate_trust_policy};
 use crate::aws::sts::assume_all_deployer_roles;
+use crate::aws::tagging::{list_managed_role_names, tagging_client_from_credentials};
 use crate::config::accounts::Account;
 use crate::config::role::RoleFile;
-use crate::config::{ConfigPaths, load_config};
+use crate::config::{Config, ConfigPaths, load_config};
 
 #[derive(Debug)]
 pub struct PlanEntry {
@@ -130,27 +130,27 @@ fn normalize_json(value: &Value) -> Value {
     }
 }
 
-pub async fn run(paths: &ConfigPaths, debug: bool) -> Result<()> {
+/// Build the full plan: load config, assume roles, compute entries, discover orphans.
+///
+/// Returns the loaded config, plan entries, and per-account IAM clients (keyed by account ID).
+pub async fn build_plan(
+    paths: &ConfigPaths,
+    debug: bool,
+) -> Result<(Config, Vec<PlanEntry>, HashMap<String, aws_sdk_iam::Client>)> {
     let config = load_config(paths)?;
-
-    let account_map: HashMap<&str, &Account> = config
-        .accounts
-        .accounts
-        .iter()
-        .map(|a| (a.name.as_str(), a))
-        .collect();
+    let account_map = config.accounts.account_map();
 
     // Use ALL accounts from accounts file (not just role-referenced ones)
     // so we can detect orphaned roles in accounts where roles were removed from config
     let unique_accounts: Vec<&Account> = config.accounts.accounts.iter().collect();
 
-    println!(
+    eprintln!(
         "{}",
         format!(
             "Assuming deployer roles in {} account(s)...",
             unique_accounts.len()
         )
-        .if_supports_color(Stream::Stdout, |t| t.bold())
+        .if_supports_color(Stream::Stderr, |t| t.bold())
     );
 
     let aws_config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
@@ -173,12 +173,12 @@ pub async fn run(paths: &ConfigPaths, debug: bool) -> Result<()> {
         );
     }
 
-    // Build IAM client per account
-    let iam_clients: HashMap<&str, aws_sdk_iam::Client> = successes
+    // Build IAM client per account (owned String keys for returning)
+    let iam_clients: HashMap<String, aws_sdk_iam::Client> = successes
         .iter()
         .map(|(id, assumed)| {
             let client = iam_client_from_credentials(&assumed.credentials);
-            (id.as_str(), client)
+            (id.clone(), client)
         })
         .collect();
 
@@ -195,7 +195,9 @@ pub async fn run(paths: &ConfigPaths, debug: bool) -> Result<()> {
     let mut entries = Vec::new();
     for role in &config.roles {
         for account_name in &role.accounts {
-            let account = account_map[account_name.as_str()];
+            let account = account_map.get(account_name.as_str()).ok_or_else(|| {
+                anyhow::anyhow!("unknown account '{account_name}' in role '{}'", role.name)
+            })?;
             let iam_client = &iam_clients[account.id.as_str()];
 
             let entry = compute_plan_entry(role, account, iam_client).await?;
@@ -207,7 +209,9 @@ pub async fn run(paths: &ConfigPaths, debug: bool) -> Result<()> {
     let mut desired: HashSet<(&str, &str)> = HashSet::new();
     for role in &config.roles {
         for acct_name in &role.accounts {
-            let account = account_map[acct_name.as_str()];
+            let account = account_map.get(acct_name.as_str()).ok_or_else(|| {
+                anyhow::anyhow!("unknown account '{acct_name}' in role '{}'", role.name)
+            })?;
             desired.insert((role.name.as_str(), account.id.as_str()));
         }
     }
@@ -230,7 +234,11 @@ pub async fn run(paths: &ConfigPaths, debug: bool) -> Result<()> {
         }
     }
 
-    // Print plan
+    Ok((config, entries, iam_clients))
+}
+
+pub async fn run(paths: &ConfigPaths, debug: bool) -> Result<()> {
+    let (_config, entries, _iam_clients) = build_plan(paths, debug).await?;
     print_plan(&entries);
     Ok(())
 }
@@ -263,9 +271,9 @@ pub async fn compute_plan_entry(
 }
 
 pub fn print_plan(entries: &[PlanEntry]) {
-    println!(
+    eprintln!(
         "\n{}\n",
-        "Plan:".if_supports_color(Stream::Stdout, |t| t.bold())
+        "Plan:".if_supports_color(Stream::Stderr, |t| t.bold())
     );
 
     let mut create_count = 0;
@@ -277,42 +285,42 @@ pub fn print_plan(entries: &[PlanEntry]) {
         match &entry.action {
             PlannedAction::Create => {
                 create_count += 1;
-                println!(
+                eprintln!(
                     "  {} {} in {} ({}): {}",
-                    "+".if_supports_color(Stream::Stdout, |t| t.green()),
+                    "+".if_supports_color(Stream::Stderr, |t| t.green()),
                     entry.role_name,
                     entry.account_name,
                     entry.account_id,
-                    "CREATE".if_supports_color(Stream::Stdout, |t| t.green()),
+                    "CREATE".if_supports_color(Stream::Stderr, |t| t.green()),
                 );
             }
             PlannedAction::Update { changes } => {
                 update_count += 1;
-                println!(
+                eprintln!(
                     "  {} {} in {} ({}): {}",
-                    "~".if_supports_color(Stream::Stdout, |t| t.yellow()),
+                    "~".if_supports_color(Stream::Stderr, |t| t.yellow()),
                     entry.role_name,
                     entry.account_name,
                     entry.account_id,
-                    "UPDATE".if_supports_color(Stream::Stdout, |t| t.yellow()),
+                    "UPDATE".if_supports_color(Stream::Stderr, |t| t.yellow()),
                 );
                 for change in changes {
                     let detail = format!("      - {change}");
-                    println!(
+                    eprintln!(
                         "{}",
-                        detail.if_supports_color(Stream::Stdout, |t| t.yellow())
+                        detail.if_supports_color(Stream::Stderr, |t| t.yellow())
                     );
                 }
             }
             PlannedAction::Delete => {
                 delete_count += 1;
-                println!(
+                eprintln!(
                     "  {} {} in {} ({}): {}",
-                    "-".if_supports_color(Stream::Stdout, |t| t.red()),
+                    "-".if_supports_color(Stream::Stderr, |t| t.red()),
                     entry.role_name,
                     entry.account_name,
                     entry.account_id,
-                    "DELETE".if_supports_color(Stream::Stdout, |t| t.red()),
+                    "DELETE".if_supports_color(Stream::Stderr, |t| t.red()),
                 );
             }
             PlannedAction::NoChange => {
@@ -321,26 +329,26 @@ pub fn print_plan(entries: &[PlanEntry]) {
                     "    {} in {} ({}): no change",
                     entry.role_name, entry.account_name, entry.account_id
                 );
-                println!("{}", line.if_supports_color(Stream::Stdout, |t| t.dimmed()));
+                eprintln!("{}", line.if_supports_color(Stream::Stderr, |t| t.dimmed()));
             }
         }
     }
 
-    println!(
+    eprintln!(
         "\n{} {} to create, {} to update, {} to delete, {} unchanged",
-        "Summary:".if_supports_color(Stream::Stdout, |t| t.bold()),
+        "Summary:".if_supports_color(Stream::Stderr, |t| t.bold()),
         create_count
             .to_string()
-            .if_supports_color(Stream::Stdout, |t| t.green()),
+            .if_supports_color(Stream::Stderr, |t| t.green()),
         update_count
             .to_string()
-            .if_supports_color(Stream::Stdout, |t| t.yellow()),
+            .if_supports_color(Stream::Stderr, |t| t.yellow()),
         delete_count
             .to_string()
-            .if_supports_color(Stream::Stdout, |t| t.red()),
+            .if_supports_color(Stream::Stderr, |t| t.red()),
         no_change_count
             .to_string()
-            .if_supports_color(Stream::Stdout, |t| t.dimmed()),
+            .if_supports_color(Stream::Stderr, |t| t.dimmed()),
     );
 }
 

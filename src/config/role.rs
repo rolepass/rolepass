@@ -2,9 +2,11 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+pub const DEFAULT_MAX_SESSION_DURATION: u32 = 3600;
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct RoleFile {
     pub name: String,
     #[serde(default)]
@@ -17,23 +19,24 @@ pub struct RoleFile {
 }
 
 fn default_max_session_duration() -> Option<u32> {
-    Some(3600)
+    Some(DEFAULT_MAX_SESSION_DURATION)
 }
 
 impl RoleFile {
     pub fn max_session_duration(&self) -> u32 {
-        self.max_session_duration.unwrap_or(3600)
+        self.max_session_duration
+            .unwrap_or(DEFAULT_MAX_SESSION_DURATION)
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Provider {
     GitHub,
     GitLab,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Trust {
     pub provider: Provider,
     #[serde(default)]
@@ -52,7 +55,7 @@ impl Trust {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct PolicyStatement {
     pub effect: Effect,
     pub actions: Vec<String>,
@@ -61,24 +64,22 @@ pub struct PolicyStatement {
     pub conditions: Option<HashMap<String, HashMap<String, ConditionValue>>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub enum Effect {
     Allow,
     Deny,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
 pub enum ConditionValue {
     Single(String),
     Multiple(Vec<String>),
 }
 
-pub fn load_role_file(path: &Path) -> Result<RoleFile> {
-    let contents =
-        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+pub fn parse_role(contents: &str, path: &Path) -> Result<RoleFile> {
     let role_file: RoleFile =
-        serde_yaml::from_str(&contents).with_context(|| format!("parsing {}", path.display()))?;
+        serde_yml::from_str(contents).with_context(|| format!("parsing {}", path.display()))?;
     Ok(role_file)
 }
 
@@ -102,7 +103,7 @@ permissions:
     resources:
       - "*"
 "#;
-        let file: RoleFile = serde_yaml::from_str(yaml).unwrap();
+        let file: RoleFile = serde_yml::from_str(yaml).unwrap();
         assert_eq!(file.name, "deploy-role");
         assert_eq!(file.accounts, vec!["prod"]);
         assert_eq!(file.trust.repo, "my-org/my-repo");
@@ -144,7 +145,7 @@ permissions:
       - "*"
 max_session_duration: 7200
 "#;
-        let file: RoleFile = serde_yaml::from_str(yaml).unwrap();
+        let file: RoleFile = serde_yml::from_str(yaml).unwrap();
         assert_eq!(file.description.as_deref(), Some("Deploys things"));
         assert_eq!(file.accounts.len(), 2);
         assert_eq!(file.trust.refs.as_ref().unwrap().len(), 2);
@@ -175,7 +176,7 @@ permissions:
       StringEquals:
         aws:PrincipalTag/env: production
 "#;
-        let file: RoleFile = serde_yaml::from_str(yaml).unwrap();
+        let file: RoleFile = serde_yml::from_str(yaml).unwrap();
         let conditions = file.permissions[0].conditions.as_ref().unwrap();
         let val = &conditions["StringEquals"]["aws:PrincipalTag/env"];
         match val {

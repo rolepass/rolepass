@@ -1,27 +1,20 @@
-use std::collections::HashMap;
-
 use anyhow::Result;
 use serde_json::{Value, json};
 
 use crate::aws::policy::{generate_permission_policy, generate_trust_policy};
-use crate::config::accounts::Account;
 use crate::config::{ConfigPaths, load_config};
 
 pub fn run(paths: &ConfigPaths) -> Result<()> {
     let config = load_config(paths)?;
-
-    let account_map: HashMap<&str, &Account> = config
-        .accounts
-        .accounts
-        .iter()
-        .map(|a| (a.name.as_str(), a))
-        .collect();
+    let account_map = config.accounts.account_map();
 
     let mut entries: Vec<Value> = Vec::new();
 
     for role in &config.roles {
         for account_name in &role.accounts {
-            let account = account_map[account_name.as_str()];
+            let account = account_map.get(account_name.as_str()).ok_or_else(|| {
+                anyhow::anyhow!("unknown account '{account_name}' in role '{}'", role.name)
+            })?;
 
             let trust_policy = generate_trust_policy(&role.trust, account)?;
             let permission_policy = generate_permission_policy(&role.permissions);
