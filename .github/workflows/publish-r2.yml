@@ -1,0 +1,67 @@
+# Custom cargo-dist publish job: uploads release archives to Cloudflare R2,
+# which backs https://releases.rolepass.dev.
+#
+# Wired into release.yml via `publish-jobs = ["./publish-r2"]` in
+# dist-workspace.toml. Requires secrets from the `Release` GitHub
+# environment, from an R2 API token scoped "Object Read & Write" to
+# the bucket:
+#   R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY
+
+name: Publish to R2
+
+on:
+  workflow_call:
+    inputs:
+      plan:
+        required: true
+        type: string
+
+jobs:
+  publish-r2:
+    runs-on: ubuntu-latest
+    environment:
+      name: Release
+      url: https://releases.rolepass.dev
+    env:
+      PLAN: ${{ inputs.plan }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: auto
+      # R2 does not support the newer AWS CLI default integrity checksums
+      AWS_REQUEST_CHECKSUM_CALCULATION: WHEN_REQUIRED
+      AWS_RESPONSE_CHECKSUM_VALIDATION: WHEN_REQUIRED
+      R2_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+      R2_BUCKET: rolepass-releases
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download built artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: artifacts-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: Upload archives and schemas to R2 (versioned + latest)
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(jq -r '.releases[] | select(.app_name == "rolepass") | .app_version' <<< "$PLAN")"
+          if [ -z "$VERSION" ]; then
+            echo "could not determine app version from dist plan" >&2
+            exit 1
+          fi
+          cp schemas/*.schema.json artifacts/
+          cd artifacts
+          uploaded=0
+          for f in rolepass-*.tar.xz rolepass-*.tar.xz.sha256 rolepass-*.zip rolepass-*.zip.sha256 *.schema.json; do
+            [ -e "$f" ] || continue
+            aws s3 cp "$f" "s3://${R2_BUCKET}/v${VERSION}/${f}" --endpoint-url "$R2_ENDPOINT"
+            aws s3 cp "$f" "s3://${R2_BUCKET}/latest/${f}" --endpoint-url "$R2_ENDPOINT"
+            uploaded=$((uploaded + 1))
+          done
+          if [ "$uploaded" -eq 0 ]; then
+            echo "no release archives found to upload" >&2
+            exit 1
+          fi
+          echo "uploaded $uploaded files to v${VERSION}/ and latest/"
