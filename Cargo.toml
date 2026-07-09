@@ -2,6 +2,10 @@
 name = "rolepass"
 version = "0.1.0"
 edition = "2024"
+description = "Manage AWS IAM roles for CI/CD pipelines across multiple accounts using OIDC federation"
+license = "MIT"
+repository = "https://github.com/rolepass/rolepass"
+homepage = "https://rolepass.dev"
 
 [dependencies]
 # runtime
