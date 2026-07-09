@@ -201,6 +201,16 @@ mod tests {
         );
     }
 
+    #[test]
+    fn oidc_arn_eusc_partition() {
+        let trust = make_trust(Provider::GitHub, "org/repo", None);
+        let account = make_account("555555555555", Some("aws-eusc"));
+        assert_eq!(
+            oidc_provider_arn(&trust, &account),
+            "arn:aws-eusc:iam::555555555555:oidc-provider/token.actions.githubusercontent.com"
+        );
+    }
+
     // --- GitHub trust policy tests ---
 
     #[test]

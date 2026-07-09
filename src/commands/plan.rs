@@ -31,10 +31,12 @@ pub enum PlannedAction {
 #[derive(Debug)]
 pub enum ChangeDetail {
     TrustPolicy {
+        #[allow(dead_code)]
         current: Value,
         desired: Value,
     },
     PermissionPolicy {
+        #[allow(dead_code)]
         current: Option<Value>,
         desired: Value,
     },
@@ -173,11 +175,17 @@ pub async fn build_plan(
         );
     }
 
+    let partition_by_id: HashMap<&str, &str> = unique_accounts
+        .iter()
+        .map(|account| (account.id.as_str(), account.partition()))
+        .collect();
+
     // Build IAM client per account (owned String keys for returning)
     let iam_clients: HashMap<String, aws_sdk_iam::Client> = successes
         .iter()
         .map(|(id, assumed)| {
-            let client = iam_client_from_credentials(&assumed.credentials);
+            let client =
+                iam_client_from_credentials(&assumed.credentials, partition_by_id[id.as_str()]);
             (id.clone(), client)
         })
         .collect();
@@ -186,7 +194,8 @@ pub async fn build_plan(
     let tagging_clients: HashMap<&str, aws_sdk_resourcegroupstagging::Client> = successes
         .iter()
         .map(|(id, assumed)| {
-            let client = tagging_client_from_credentials(&assumed.credentials);
+            let client =
+                tagging_client_from_credentials(&assumed.credentials, partition_by_id[id.as_str()]);
             (id.as_str(), client)
         })
         .collect();
@@ -550,7 +559,7 @@ mod tests {
             },
         ];
 
-        // Should not panic — exercises the Delete branch in print_plan
+        // Should not panic; exercises the Delete branch in print_plan
         print_plan(&entries);
     }
 }

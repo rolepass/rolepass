@@ -8,7 +8,7 @@ use aws_sdk_sts::types::Credentials;
 use serde_json::Value;
 
 use super::policy::ROLEPASS_POLICY_NAME;
-use super::{CREDENTIAL_PROVIDER_NAME, IAM_REGION};
+use super::{CREDENTIAL_PROVIDER_NAME, partition_home_region};
 
 pub const ROLEPASS_TAG_KEY: &str = "managed-by";
 pub const ROLEPASS_TAG_VALUE: &str = "rolepass";
@@ -21,7 +21,7 @@ pub struct FetchedRoleState {
     pub description: Option<String>,
 }
 
-pub fn iam_client_from_credentials(credentials: &Credentials) -> IamClient {
+pub fn iam_client_from_credentials(credentials: &Credentials, partition: &str) -> IamClient {
     let creds = aws_sdk_iam::config::Credentials::new(
         credentials.access_key_id(),
         credentials.secret_access_key(),
@@ -31,7 +31,9 @@ pub fn iam_client_from_credentials(credentials: &Credentials) -> IamClient {
     );
     let config = aws_sdk_iam::Config::builder()
         .credentials_provider(creds)
-        .region(aws_sdk_iam::config::Region::new(IAM_REGION))
+        .region(aws_sdk_iam::config::Region::new(partition_home_region(
+            partition,
+        )))
         .behavior_version_latest()
         .build();
     IamClient::from_conf(config)

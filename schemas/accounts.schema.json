@@ -38,7 +38,7 @@
         "partition": {
           "type": "string",
           "description": "AWS partition this account belongs to. Defaults to 'aws' (global).",
-          "enum": ["aws", "aws-cn", "aws-us-gov"],
+          "enum": ["aws", "aws-cn", "aws-us-gov", "aws-eusc"],
           "default": "aws"
         },
         "deployer_role_name": {

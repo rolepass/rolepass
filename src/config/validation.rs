@@ -58,6 +58,29 @@ accounts:
     }
 
     #[test]
+    fn valid_accounts_eusc_partition() {
+        let yaml = r#"
+accounts:
+  - name: prod
+    id: "111111111111"
+    partition: aws-eusc
+"#;
+        validate_accounts(yaml, &PathBuf::from("test.yaml")).unwrap();
+    }
+
+    #[test]
+    fn invalid_accounts_unknown_partition() {
+        let yaml = r#"
+accounts:
+  - name: prod
+    id: "111111111111"
+    partition: aws-iso
+"#;
+        let err = validate_accounts(yaml, &PathBuf::from("test.yaml")).unwrap_err();
+        assert!(err.to_string().contains("schema validation failed"));
+    }
+
+    #[test]
     fn invalid_accounts_missing_id() {
         let yaml = r#"
 accounts:

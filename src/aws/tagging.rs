@@ -5,12 +5,16 @@ use aws_sdk_resourcegroupstagging::types::TagFilter;
 use aws_sdk_sts::types::Credentials;
 
 use super::iam::{ROLEPASS_TAG_KEY, ROLEPASS_TAG_VALUE};
-use super::{CREDENTIAL_PROVIDER_NAME, IAM_REGION};
+use super::{CREDENTIAL_PROVIDER_NAME, partition_home_region};
 
 /// Build a Resource Groups Tagging API client from STS assumed-role credentials.
 ///
-/// IAM is a global service, but the Tagging API indexes IAM resources in us-east-1.
-pub fn tagging_client_from_credentials(credentials: &Credentials) -> TaggingClient {
+/// IAM is a global service, but the Tagging API indexes IAM resources in the
+/// partition's home region.
+pub fn tagging_client_from_credentials(
+    credentials: &Credentials,
+    partition: &str,
+) -> TaggingClient {
     let creds = aws_sdk_resourcegroupstagging::config::Credentials::new(
         credentials.access_key_id(),
         credentials.secret_access_key(),
@@ -21,7 +25,7 @@ pub fn tagging_client_from_credentials(credentials: &Credentials) -> TaggingClie
     let config = aws_sdk_resourcegroupstagging::Config::builder()
         .credentials_provider(creds)
         .region(aws_sdk_resourcegroupstagging::config::Region::new(
-            IAM_REGION,
+            partition_home_region(partition),
         ))
         .behavior_version_latest()
         .build();
@@ -219,6 +223,14 @@ mod tests {
     fn extract_govcloud_partition_role() {
         assert_eq!(
             extract_role_name_from_arn("arn:aws-us-gov:iam::123456789012:role/my-role"),
+            Some("my-role")
+        );
+    }
+
+    #[test]
+    fn extract_eusc_partition_role() {
+        assert_eq!(
+            extract_role_name_from_arn("arn:aws-eusc:iam::123456789012:role/my-role"),
             Some("my-role")
         );
     }

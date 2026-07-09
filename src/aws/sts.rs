@@ -7,8 +7,10 @@ use crate::config::accounts::Account;
 
 #[derive(Debug)]
 pub struct AssumedRole {
+    #[allow(dead_code)]
     pub role_arn: String,
     pub credentials: Credentials,
+    #[allow(dead_code)]
     pub account_id: String,
 }
 
@@ -120,6 +122,15 @@ mod tests {
         assert_eq!(
             deployer_role_arn(&account),
             "arn:aws-us-gov:iam::333333333333:role/rolepass-deployer"
+        );
+    }
+
+    #[test]
+    fn deployer_role_arn_eusc_partition() {
+        let account = make_account("eusc", "666666666666", Some("aws-eusc"), None);
+        assert_eq!(
+            deployer_role_arn(&account),
+            "arn:aws-eusc:iam::666666666666:role/rolepass-deployer"
         );
     }
 
