@@ -2,4 +2,7 @@ target/
 .git/
 .idea/
 .claude/
+*.md
+.gitignore
+.env
 example-tokens/
