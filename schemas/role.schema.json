@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/runebaas/rolepass/schemas/role.schema.json",
+  "$id": "https://releases.rolepass.dev/latest/role.schema.json",
   "title": "Pipeline Role",
   "description": "Defines an IAM role for a CI/CD pipeline, including which accounts it exists in, what it is allowed to assume, and what permissions it has.",
   "type": "object",

@@ -5,6 +5,7 @@ use anyhow::{Result, bail};
 use owo_colors::{OwoColorize, Stream};
 
 const SAMPLE_ACCOUNTS: &str = "\
+# yaml-language-server: $schema=https://releases.rolepass.dev/latest/accounts.schema.json
 accounts:
   - name: production
     id: \"123456789012\"
@@ -13,6 +14,7 @@ accounts:
 ";
 
 const SAMPLE_ROLE: &str = "\
+# yaml-language-server: $schema=https://releases.rolepass.dev/latest/role.schema.json
 name: deploy
 description: CI/CD deployment role
 accounts:
