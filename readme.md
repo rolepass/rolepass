@@ -1,8 +1,15 @@
-# Rolepass
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://rolepass.dev/assets/logo-indigo.svg">
+    <img src="https://rolepass.dev/assets/logo-ink.svg" alt="RolePass" width="96">
+  </picture>
+</p>
+
+# RolePass
 
 Manage AWS IAM roles for CI/CD pipelines across multiple accounts using OIDC federation.
 
-Rolepass replaces hand-managed IAM roles and long-lived access keys with a single declarative config. Define your roles once, preview the exact changes, and apply them to any number of AWS accounts.
+RolePass replaces hand-managed IAM roles and long-lived access keys with a single declarative config. Define your roles once, preview the exact changes, and apply them to any number of AWS accounts.
 
 **Documentation: [rolepass.dev](https://rolepass.dev)**
 
